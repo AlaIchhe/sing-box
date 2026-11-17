@@ -11,6 +11,7 @@
     "proxy-c"
   ],
   "url": "",
+  "expected_status": 0,
   "interval": "",
   "tolerance": 0,
   "idle_timeout": "",
@@ -29,6 +30,10 @@ List of outbound tags to test.
 #### url
 
 The URL to test. `https://www.gstatic.com/generate_204` will be used if empty.
+
+#### expected_status
+
+Expected HTTP status code. When set, only a response with this status code is treated as a successful test; any other status code is treated as a failed test. `0` accepts any status code and is the default.
 
 #### interval
 

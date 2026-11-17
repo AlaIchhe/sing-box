@@ -15,6 +15,7 @@ import (
 	"github.com/sagernet/sing-mux"
 	"github.com/sagernet/sing-snell"
 	"github.com/sagernet/sing/common"
+	E "github.com/sagernet/sing/common/exceptions"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/common/ntp"
@@ -81,7 +82,7 @@ func (s *HistoryStorage) Close() error {
 	return nil
 }
 
-func URLTest(ctx context.Context, link string, detour N.Dialer) (uint16, error) {
+func URLTest(ctx context.Context, link string, expectedStatus uint16, detour N.Dialer) (uint16, error) {
 	multiplexOutbound, isMultiplexOutbound := common.Cast[adapter.OutboundWithMultiplex](detour)
 	if isMultiplexOutbound && multiplexOutbound.MultiplexEnabled() {
 		warmContext := adapter.ContextWithKeepSession(ctx)
@@ -89,15 +90,15 @@ func URLTest(ctx context.Context, link string, detour N.Dialer) (uint16, error) 
 		warmContext = anytls.ContextWithKeepSession(warmContext)
 		warmContext = contextWithQUICKeepSession(warmContext)
 		warmContext = snell.ContextWithKeepSession(warmContext)
-		_, err := urlTest(warmContext, link, detour)
+		_, err := urlTest(warmContext, link, expectedStatus, detour)
 		if err != nil {
 			return 0, err
 		}
 	}
-	return urlTest(ctx, link, detour)
+	return urlTest(ctx, link, expectedStatus, detour)
 }
 
-func urlTest(ctx context.Context, link string, detour N.Dialer) (t uint16, err error) {
+func urlTest(ctx context.Context, link string, expectedStatus uint16, detour N.Dialer) (t uint16, err error) {
 	if link == "" {
 		link = "https://www.gstatic.com/generate_204"
 	}
@@ -150,6 +151,10 @@ func urlTest(ctx context.Context, link string, detour N.Dialer) (t uint16, err e
 		return
 	}
 	resp.Body.Close()
+	if expectedStatus != 0 && resp.StatusCode != int(expectedStatus) {
+		err = E.New("unexpected status code: ", resp.StatusCode)
+		return
+	}
 	t = uint16(time.Since(start) / time.Millisecond)
 	return
 }

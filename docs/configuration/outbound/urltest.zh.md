@@ -11,6 +11,7 @@
     "proxy-c"
   ],
   "url": "",
+  "expected_status": 0,
   "interval": "",
   "tolerance": 50,
   "idle_timeout": "",
@@ -29,6 +30,10 @@
 #### url
 
 用于测试的链接。默认使用 `https://www.gstatic.com/generate_204`。
+
+#### expected_status
+
+预期的 HTTP 状态码。设置后，只有该状态码的响应被视为测试成功，其他状态码按测试失败处理（视为节点不可用）。`0` 表示任意状态码（只要有响应）都算成功，也是默认行为。
 
 #### interval
 

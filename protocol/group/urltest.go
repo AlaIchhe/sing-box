@@ -44,6 +44,7 @@ type URLTest struct {
 	logger                       log.ContextLogger
 	tags                         []string
 	link                         string
+	expectedStatus               uint16
 	interval                     time.Duration
 	tolerance                    uint16
 	idleTimeout                  time.Duration
@@ -60,6 +61,7 @@ func NewURLTest(ctx context.Context, router adapter.Router, logger log.ContextLo
 		logger:                       logger,
 		tags:                         options.Outbounds,
 		link:                         options.URL,
+		expectedStatus:               options.ExpectedStatus,
 		interval:                     time.Duration(options.Interval),
 		tolerance:                    options.Tolerance,
 		idleTimeout:                  time.Duration(options.IdleTimeout),
@@ -87,7 +89,7 @@ func (s *URLTest) Start(stage adapter.StartStage, scope *adapter.Scope) error {
 			}
 			outbounds = append(outbounds, detour)
 		}
-		group, err := NewURLTestGroup(s.ctx, s.outbound, s.logger, outbounds, s.link, s.interval, s.tolerance, s.idleTimeout, s.interruptExternalConnections)
+		group, err := NewURLTestGroup(s.ctx, s.outbound, s.logger, outbounds, s.link, s.expectedStatus, s.interval, s.tolerance, s.idleTimeout, s.interruptExternalConnections)
 		if err != nil {
 			return err
 		}
@@ -218,6 +220,7 @@ type URLTestGroup struct {
 	logger                       log.Logger
 	outbounds                    []adapter.Outbound
 	link                         string
+	expectedStatus               uint16
 	interval                     time.Duration
 	tolerance                    uint16
 	idleTimeout                  time.Duration
@@ -235,7 +238,7 @@ type URLTestGroup struct {
 	lastActive                   common.TypedValue[time.Time]
 }
 
-func NewURLTestGroup(ctx context.Context, outboundManager adapter.OutboundManager, logger log.Logger, outbounds []adapter.Outbound, link string, interval time.Duration, tolerance uint16, idleTimeout time.Duration, interruptExternalConnections bool) (*URLTestGroup, error) {
+func NewURLTestGroup(ctx context.Context, outboundManager adapter.OutboundManager, logger log.Logger, outbounds []adapter.Outbound, link string, expectedStatus uint16, interval time.Duration, tolerance uint16, idleTimeout time.Duration, interruptExternalConnections bool) (*URLTestGroup, error) {
 	if interval == 0 {
 		interval = C.DefaultURLTestInterval
 	}
@@ -258,6 +261,7 @@ func NewURLTestGroup(ctx context.Context, outboundManager adapter.OutboundManage
 		logger:                       logger,
 		outbounds:                    outbounds,
 		link:                         link,
+		expectedStatus:               expectedStatus,
 		interval:                     interval,
 		tolerance:                    tolerance,
 		idleTimeout:                  idleTimeout,
@@ -390,7 +394,7 @@ func (g *URLTestGroup) urlTest(ctx context.Context, force bool) (map[string]uint
 		return make(map[string]uint16), nil
 	}
 	defer g.checking.Store(false)
-	result := URLTestOutbounds(ctx, g.outbound, g.history, g.logger, g.outbounds, g.link, g.interval, force)
+	result := URLTestOutbounds(ctx, g.outbound, g.history, g.logger, g.outbounds, g.link, g.expectedStatus, g.interval, force)
 	g.performUpdateCheck()
 	return result, nil
 }
@@ -412,7 +416,7 @@ type urlTestBatch struct {
 	result   map[string]uint16
 }
 
-func URLTestOutbounds(ctx context.Context, outboundManager adapter.OutboundManager, history *urltest.HistoryStorage, logger log.Logger, outbounds []adapter.Outbound, link string, interval time.Duration, force bool) map[string]uint16 {
+func URLTestOutbounds(ctx context.Context, outboundManager adapter.OutboundManager, history *urltest.HistoryStorage, logger log.Logger, outbounds []adapter.Outbound, link string, expectedStatus uint16, interval time.Duration, force bool) map[string]uint16 {
 	b, _ := batch.New(ctx, batch.WithConcurrencyNum[any](10))
 	testBatch := &urlTestBatch{
 		ctx:      ctx,
@@ -423,7 +427,7 @@ func URLTestOutbounds(ctx context.Context, outboundManager adapter.OutboundManag
 		checked:  make(map[string]bool),
 		result:   make(map[string]uint16),
 	}
-	testBatch.test(outbounds, link, interval, force)
+	testBatch.test(outbounds, link, expectedStatus, interval, force)
 	b.Wait()
 	for _, outboundGroup := range testBatch.groups {
 		groupHistory := history.LoadURLTestHistory(RealTag(outboundGroup, N.NetworkTCP))
@@ -434,7 +438,7 @@ func URLTestOutbounds(ctx context.Context, outboundManager adapter.OutboundManag
 	return testBatch.result
 }
 
-func (b *urlTestBatch) test(outbounds []adapter.Outbound, link string, interval time.Duration, force bool) {
+func (b *urlTestBatch) test(outbounds []adapter.Outbound, link string, expectedStatus uint16, interval time.Duration, force bool) {
 	for _, detour := range outbounds {
 		tag := detour.Tag()
 		if b.checked[tag] {
@@ -457,7 +461,7 @@ func (b *urlTestBatch) test(outbounds []adapter.Outbound, link string, interval 
 			b.test(common.FilterNotNil(common.Map(nested.All(), func(it string) adapter.Outbound {
 				member, _ := b.outbound.Outbound(it)
 				return member
-			})), link, interval, force)
+			})), link, expectedStatus, interval, force)
 		default:
 			history := b.history.LoadURLTestHistory(tag)
 			if !force && history != nil && time.Since(history.Time) < interval {
@@ -469,7 +473,7 @@ func (b *urlTestBatch) test(outbounds []adapter.Outbound, link string, interval 
 				defer cancel()
 				testChan := make(chan urlTestResult, 1)
 				go func() {
-					delay, testErr := urltest.URLTest(testCtx, link, detour)
+					delay, testErr := urltest.URLTest(testCtx, link, expectedStatus, detour)
 					testChan <- urlTestResult{delay, testErr}
 				}()
 				var testResult urlTestResult
